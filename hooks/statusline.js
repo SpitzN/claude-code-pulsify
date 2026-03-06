@@ -119,7 +119,17 @@ async function main() {
   // Debug payload dump
   if (process.env.CLAUDE_PULSIFY_DEBUG) {
     try {
-      fs.writeFileSync('/tmp/claude-pulsify-debug.json', JSON.stringify(data, null, 2), 'utf8')
+      const debugData = {
+        ...data,
+        _debug: {
+          process_cwd: process.cwd(),
+          env_PWD: process.env.PWD || null,
+          env_HOME: process.env.HOME || null,
+          argv: process.argv,
+          timestamp: new Date().toISOString(),
+        },
+      }
+      fs.writeFileSync('/tmp/claude-pulsify-debug.json', JSON.stringify(debugData, null, 2), 'utf8')
     } catch {
       // Silently ignore write errors
     }
