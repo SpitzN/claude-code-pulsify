@@ -49,7 +49,7 @@ async function main() {
       fs.writeFileSync(cachePath, JSON.stringify({
         installed,
         latest,
-        updateAvailable: latest !== installed,
+        updateAvailable: latest.localeCompare(installed, undefined, { numeric: true }) > 0,
         checkedAt: Date.now()
       }));
     } catch {
