@@ -69,9 +69,15 @@ function install() {
   fs.writeFileSync(path.join(hooksTarget, 'VERSION'), PACKAGE_VERSION, 'utf8')
   console.log(`  Wrote VERSION (${PACKAGE_VERSION})`)
 
-  // 3. Clear stale update cache so the indicator disappears immediately
-  const updateCachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
-  try { fs.unlinkSync(updateCachePath) } catch { /* doesn't exist — fine */ }
+  // 3. Clear update cache so stale "update available" indicators don't persist after install.
+  //    The background worker will refresh it on next session.
+  const cachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
+  try {
+    fs.unlinkSync(cachePath)
+    console.log(`  Cleared update cache`)
+  } catch {
+    // Doesn't exist — fine
+  }
 
   // 4. Patch settings.json
   const settings = readJSON(settingsPath)
@@ -170,6 +176,26 @@ const args = process.argv.slice(2)
 
 if (args.includes('--version')) {
   console.log(PACKAGE_VERSION)
+} else if (args.includes('--status')) {
+  const versionFile = path.join(hooksTarget, 'VERSION')
+  const cachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
+  const installed = fs.existsSync(versionFile) ? fs.readFileSync(versionFile, 'utf8').trim() : null
+  if (!installed) {
+    console.log('claude-code-pulsify is not installed.')
+    process.exit(1)
+  }
+  console.log(`Installed: v${installed}`)
+  console.log(`Hooks:     ${hooksTarget}`)
+  try {
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'))
+    if (cache.updateAvailable && cache.latest) {
+      console.log(`Latest:    v${cache.latest} (update available)`)
+    } else {
+      console.log(`Latest:    v${cache.latest || installed} (up to date)`)
+    }
+  } catch {
+    console.log(`Latest:    unknown (run a Claude Code session to check)`)
+  }
 } else if (args.includes('--uninstall')) {
   uninstall()
 } else {

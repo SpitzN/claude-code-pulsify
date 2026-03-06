@@ -34,6 +34,18 @@ npx claude-code-pulsify@latest --uninstall
 - **Context monitor** -- Warns at 65% and 75% context usage via PostToolUse hook
 - **Update checker** -- Background version check on session start, non-blocking
 
+## Checking your installed version
+
+```bash
+npx claude-code-pulsify --status
+```
+
+This shows the currently installed version, hooks location, and whether an update is available.
+
+You can also check manually:
+- **VERSION file:** `~/.claude/hooks/claude-code-pulsify/VERSION`
+- **Update cache:** `~/.claude/cache/claude-code-pulsify-update.json` — written on each session start, contains `installed`, `latest`, and `updateAvailable` fields
+
 ## Configuration
 
 Respects the `CLAUDE_CONFIG_DIR` environment variable. Defaults to `~/.claude`.
