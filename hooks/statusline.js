@@ -7,8 +7,8 @@
  * and writes a bridge file for the context monitor.
  */
 
-const fs = require('fs')
-const path = require('path')
+const fs = require('node:fs')
+const path = require('node:path')
 
 // ANSI helpers
 const ESC = '\x1b['
@@ -28,8 +28,17 @@ const CYAN = FG(80, 200, 220)
 
 const SEPARATOR = `${GRAY}\u2502${RESET}`
 
-// Autocompact kicks in around 16.5% remaining -- normalize so bar reflects usable context
+const PROGRESS_BAR_SEGMENTS = 15
+const MAX_TASK_LABEL_LENGTH = 40
+
+// Claude's autocompact kicks in around 16.5% remaining context.
+// We normalize the bar so 0% = empty, 100% = autocompact threshold,
+// giving users a view of their *usable* context rather than total.
 const AUTOCOMPACT_BUFFER = 16.5
+
+function sanitizeId(id) {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '')
+}
 
 function normalizeUsage(remainingPct) {
   // remaining_percentage goes from 100 (empty) to 0 (full)
@@ -41,21 +50,21 @@ function normalizeUsage(remainingPct) {
 }
 
 function getBarColor(usedPct) {
-  if (usedPct < 50) return { fg: GREEN, label: GREEN }
-  if (usedPct < 65) return { fg: YELLOW, label: YELLOW }
-  if (usedPct < 80) return { fg: ORANGE, label: ORANGE }
-  return { fg: RED, label: RED }
+  if (usedPct < 50) return GREEN
+  if (usedPct < 65) return YELLOW
+  if (usedPct < 80) return ORANGE
+  return RED
 }
 
-function buildProgressBar(usedPct, segments = 15) {
-  const filled = Math.round((usedPct / 100) * segments)
-  const empty = segments - filled
-  const colors = getBarColor(usedPct)
+function buildProgressBar(usedPct) {
+  const filled = Math.round((usedPct / 100) * PROGRESS_BAR_SEGMENTS)
+  const empty = PROGRESS_BAR_SEGMENTS - filled
+  const color = getBarColor(usedPct)
   const emphasis = usedPct >= 80 ? BOLD : ''
 
-  const filledBar = `${emphasis}${colors.fg}${'█'.repeat(filled)}${RESET}`
+  const filledBar = `${emphasis}${color}${'█'.repeat(filled)}${RESET}`
   const emptyBar = `${GRAY}${'░'.repeat(empty)}${RESET}`
-  const pctLabel = `${colors.label}${BOLD}${Math.round(usedPct)}%${RESET}`
+  const pctLabel = `${color}${BOLD}${Math.round(usedPct)}%${RESET}`
 
   return `${filledBar}${emptyBar} ${pctLabel}`
 }
@@ -65,11 +74,11 @@ function getActiveTask(data) {
   const active = todos.find((t) => t.status === 'in_progress') || todos.find((t) => t.status === 'pending')
   if (!active) return null
   const label = active.content || active.description || ''
-  return label.length > 40 ? label.slice(0, 37) + '...' : label
+  return label.length > MAX_TASK_LABEL_LENGTH ? label.slice(0, MAX_TASK_LABEL_LENGTH - 3) + '...' : label
 }
 
 function getUpdateIndicator() {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude')
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('node:os').homedir(), '.claude')
   const cachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
   try {
     const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'))
@@ -94,12 +103,39 @@ function getGitBranch(cwd) {
 
 function writeBridgeFile(sessionId, metrics) {
   if (!sessionId) return
-  const bridgePath = `/tmp/claude-ctx-${sessionId}.json`
+  const safeId = sanitizeId(sessionId)
+  const bridgePath = `/tmp/claude-ctx-${safeId}.json`
+  const tmpPath = `${bridgePath}.tmp`
   try {
-    fs.writeFileSync(bridgePath, JSON.stringify({ ...metrics, timestamp: Date.now() }), 'utf8')
+    fs.writeFileSync(tmpPath, JSON.stringify({ ...metrics, timestamp: Date.now() }), 'utf8')
+    fs.renameSync(tmpPath, bridgePath)
   } catch {
     // Silently ignore write errors
   }
+}
+
+function formatCost(costUsd) {
+  if (!costUsd) return ''
+  if (costUsd < 1) return `${WHITE}$${costUsd.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}${RESET}`
+  const str = costUsd.toFixed(1).replace(/\.0$/, '')
+  return `${WHITE}$${str}${RESET}`
+}
+
+function formatLinesChanged(added, removed) {
+  const parts = []
+  if (added) parts.push(`${GREEN}+${added}${RESET}`)
+  if (removed) parts.push(`${RED}-${removed}${RESET}`)
+  return parts.join(' ')
+}
+
+function formatTokenCount(input, output) {
+  const total = (input || 0) + (output || 0)
+  if (!total) return ''
+  let compact
+  if (total >= 1e6) compact = `${(total / 1e6).toFixed(1)}M`
+  else if (total >= 1e3) compact = `${(total / 1e3).toFixed(1)}k`
+  else compact = `${total}`
+  return `${DIM}${compact} tok${RESET}`
 }
 
 async function main() {
@@ -141,6 +177,11 @@ async function main() {
   const dir = path.basename(cwd)
   const remainingPct = data.context_window?.remaining_percentage ?? 100
   const sessionId = data.session?.id || data.session_id || null
+  const costUsd = data.cost?.total_cost_usd ?? 0
+  const linesAdded = data.cost?.total_lines_added ?? 0
+  const linesRemoved = data.cost?.total_lines_removed ?? 0
+  const totalInputTokens = data.context_window?.total_input_tokens ?? 0
+  const totalOutputTokens = data.context_window?.total_output_tokens ?? 0
 
   // Normalize and build bar
   const usedPct = normalizeUsage(remainingPct)
@@ -165,9 +206,29 @@ async function main() {
     model,
   })
 
+  // Format new segments
+  const cost = formatCost(costUsd)
+  const lines = formatLinesChanged(linesAdded, linesRemoved)
+  const tokenCount = formatTokenCount(totalInputTokens, totalOutputTokens)
+
+  // Build segments array (only include non-empty optional segments)
+  const segments = [
+    `${WHITE}${model}${RESET}`,
+    dirLabel,
+  ]
+  if (cost) segments.push(cost)
+  if (lines) segments.push(lines)
+  const barWithTokens = tokenCount ? `${bar} ${tokenCount}` : bar
+  segments.push(barWithTokens)
+
   // Output statusline
-  const line = `${WHITE}${model}${RESET} ${SEPARATOR} ${dirLabel} ${SEPARATOR} ${bar}${taskSegment}${updateIndicator}`
+  const line = segments.join(` ${SEPARATOR} `) + taskSegment + updateIndicator
   process.stdout.write(line)
 }
 
-main().catch(() => process.exit(0))
+main().catch((err) => {
+  if (process.env.CLAUDE_PULSIFY_DEBUG) {
+    process.stderr.write(`[pulsify:statusline] ${err.message}\n`)
+  }
+  process.exit(0)
+})

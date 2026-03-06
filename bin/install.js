@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 'use strict'
 
-const fs = require('fs')
-const path = require('path')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const PACKAGE_VERSION = require('../package.json').version
 const HOOKS_SOURCE = path.join(__dirname, '..', 'hooks')
-const HOOK_FILES = ['statusline.js', 'context-monitor.js', 'check-update.js']
+const HOOK_FILES = ['statusline.js', 'context-monitor.js', 'check-update.js', 'check-update-worker.js']
 
-const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude')
+const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('node:os').homedir(), '.claude')
 const hooksTarget = path.join(configDir, 'hooks', 'claude-code-pulsify')
 const settingsPath = path.join(configDir, 'settings.json')
 
@@ -17,8 +17,15 @@ const settingsPath = path.join(configDir, 'settings.json')
 function readJSON(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'))
-  } catch {
-    return {}
+  } catch (err) {
+    if (err.code === 'ENOENT') return {}
+    if (err instanceof SyntaxError) {
+      const backupPath = `${filePath}.backup-${Date.now()}`
+      console.warn(`  ⚠ Parse error in ${filePath} — backing up to ${backupPath}`)
+      fs.copyFileSync(filePath, backupPath)
+      return {}
+    }
+    throw err
   }
 }
 
@@ -38,7 +45,6 @@ function upsertHookArray(arr, newEntry) {
   } else {
     arr.push(newEntry)
   }
-  return arr
 }
 
 function removeFromHookArray(arr) {
@@ -63,7 +69,11 @@ function install() {
   fs.writeFileSync(path.join(hooksTarget, 'VERSION'), PACKAGE_VERSION, 'utf8')
   console.log(`  Wrote VERSION (${PACKAGE_VERSION})`)
 
-  // 3. Patch settings.json
+  // 3. Clear stale update cache so the indicator disappears immediately
+  const updateCachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
+  try { fs.unlinkSync(updateCachePath) } catch { /* doesn't exist — fine */ }
+
+  // 4. Patch settings.json
   const settings = readJSON(settingsPath)
 
   // statusLine

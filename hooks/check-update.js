@@ -3,15 +3,15 @@
 
 /**
  * SessionStart hook -- background version check for claude-code-pulsify.
- * Spawns a detached process to compare installed version vs npm latest,
+ * Spawns a detached worker process to compare installed version vs npm latest,
  * writes result to a cache file that statusline.js reads.
  */
 
-const { spawn } = require('child_process')
-const fs = require('fs')
-const path = require('path')
+const { spawn } = require('node:child_process')
+const fs = require('node:fs')
+const path = require('node:path')
 
-const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude')
+const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('node:os').homedir(), '.claude')
 const hooksDir = path.join(configDir, 'hooks', 'claude-code-pulsify')
 const cacheDir = path.join(configDir, 'cache')
 const cachePath = path.join(cacheDir, 'claude-code-pulsify-update.json')
@@ -32,36 +32,24 @@ async function main() {
     return // No VERSION file — not installed properly
   }
 
-  // Spawn detached background check so we don't block session startup
-  const script = `
-    const { execSync } = require('child_process');
-    const fs = require('fs');
-    const cachePath = ${JSON.stringify(cachePath)};
-    const cacheDir = ${JSON.stringify(cacheDir)};
-    const installed = ${JSON.stringify(installed)};
-    try {
-      const latest = execSync('npm view claude-code-pulsify version', {
-        timeout: 10000,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
-      fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(cachePath, JSON.stringify({
-        installed,
-        latest,
-        updateAvailable: latest.localeCompare(installed, undefined, { numeric: true }) > 0,
-        checkedAt: Date.now()
-      }));
-    } catch {
-      // Network error or npm not available — silently ignore
-    }
-  `
-
-  const child = spawn(process.execPath, ['-e', script], {
+  // Spawn detached background worker so we don't block session startup
+  const workerPath = path.join(__dirname, 'check-update-worker.js')
+  const child = spawn(process.execPath, [workerPath], {
     detached: true,
     stdio: 'ignore',
+    env: {
+      ...process.env,
+      PULSIFY_CACHE_PATH: cachePath,
+      PULSIFY_CACHE_DIR: cacheDir,
+      PULSIFY_INSTALLED: installed,
+    },
   })
   child.unref()
 }
 
-main().catch(() => process.exit(0))
+main().catch((err) => {
+  if (process.env.CLAUDE_PULSIFY_DEBUG) {
+    process.stderr.write(`[pulsify:check-update] ${err.message}\n`)
+  }
+  process.exit(0)
+})

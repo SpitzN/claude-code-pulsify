@@ -7,8 +7,8 @@
  * warnings when context is running low.
  */
 
-const fs = require('fs')
-const path = require('path')
+const fs = require('node:fs')
+const path = require('node:path')
 
 // Thresholds on "used percentage" (normalized, 0-100)
 const WARNING_THRESHOLD = 65 // remaining ~35% usable
@@ -17,9 +17,16 @@ const CRITICAL_THRESHOLD = 75 // remaining ~25% usable
 // Debounce: minimum tool calls between repeated warnings at the same severity
 const DEBOUNCE_COUNT = 5
 
+// Bridge data older than this is considered stale and ignored
+const BRIDGE_STALE_MS = 60_000
+
+function sanitizeId(id) {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '')
+}
+
 // State file to track debounce across invocations
 function getStateFile(sessionId) {
-  return `/tmp/claude-ctx-monitor-state-${sessionId}.json`
+  return `/tmp/claude-ctx-monitor-state-${sanitizeId(sessionId)}.json`
 }
 
 function readState(sessionId) {
@@ -55,7 +62,7 @@ async function main() {
   if (!sessionId) return
 
   // Read bridge file from statusline
-  const bridgePath = `/tmp/claude-ctx-${sessionId}.json`
+  const bridgePath = `/tmp/claude-ctx-${sanitizeId(sessionId)}.json`
   let metrics
   try {
     metrics = JSON.parse(fs.readFileSync(bridgePath, 'utf8'))
@@ -63,8 +70,8 @@ async function main() {
     return // No bridge file yet -- statusline hasn't run
   }
 
-  // Check staleness (>60s old)
-  if (Date.now() - (metrics.timestamp || 0) > 60_000) return
+  // Check staleness
+  if (Date.now() - (metrics.timestamp || 0) > BRIDGE_STALE_MS) return
 
   const usedPct = metrics.used_percentage
   if (usedPct == null) return
@@ -112,4 +119,9 @@ async function main() {
   }
 }
 
-main().catch(() => process.exit(0))
+main().catch((err) => {
+  if (process.env.CLAUDE_PULSIFY_DEBUG) {
+    process.stderr.write(`[pulsify:context-monitor] ${err.message}\n`)
+  }
+  process.exit(0)
+})
