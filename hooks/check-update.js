@@ -17,11 +17,12 @@ const cacheDir = path.join(configDir, 'cache')
 const cachePath = path.join(cacheDir, 'claude-code-pulsify-update.json')
 
 async function main() {
-  // Consume stdin (required by hook protocol)
+  // Consume stdin (required by hook protocol) with timeout guard
   let input = ''
-  for await (const chunk of process.stdin) {
-    input += chunk
-  }
+  await Promise.race([
+    (async () => { for await (const chunk of process.stdin) input += chunk })(),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
 
   // Read installed version
   const versionFile = path.join(hooksDir, 'VERSION')
@@ -37,6 +38,7 @@ async function main() {
   const child = spawn(process.execPath, [workerPath], {
     detached: true,
     stdio: 'ignore',
+    windowsHide: true,
     env: {
       ...process.env,
       PULSIFY_CACHE_PATH: cachePath,

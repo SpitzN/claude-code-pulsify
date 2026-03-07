@@ -82,7 +82,17 @@ function install() {
   // 4. Patch settings.json
   const settings = readJSON(settingsPath)
 
-  // statusLine
+  // statusLine — check for conflicts from other tools
+  const existingCmd = settings.statusLine?.command || ''
+  if (settings.statusLine && !existingCmd.includes('claude-code-pulsify')) {
+    if (!args.includes('--force')) {
+      console.warn(`\n  ⚠ Existing statusLine detected:`)
+      console.warn(`    ${existingCmd || JSON.stringify(settings.statusLine)}`)
+      console.warn(`  This will be overwritten. Re-run with --force to confirm, or remove it manually.\n`)
+      process.exit(1)
+    }
+    console.log(`  Overwriting existing statusLine (--force)`)
+  }
   settings.statusLine = {
     type: 'command',
     command: `node ${path.join(hooksTarget, 'statusline.js')}`,

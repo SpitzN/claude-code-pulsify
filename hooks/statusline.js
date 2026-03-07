@@ -140,9 +140,10 @@ function formatTokenCount(input, output) {
 
 async function main() {
   let input = ''
-  for await (const chunk of process.stdin) {
-    input += chunk
-  }
+  await Promise.race([
+    (async () => { for await (const chunk of process.stdin) input += chunk })(),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
 
   let data
   try {
