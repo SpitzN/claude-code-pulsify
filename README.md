@@ -34,6 +34,14 @@ npx claude-code-pulsify@latest --uninstall
 - **Context monitor** -- Warns at 65% and 75% context usage via PostToolUse hook
 - **Update checker** -- Background version check on session start, non-blocking
 
+## Context bar
+
+The context bar shows **usable** context, not raw token count — it accounts for Claude's autocompact buffer (~16.5% of the window), which is reserved and unavailable to you.
+
+- **0%** = fresh session
+- **100%** = autocompact imminent (context will be compressed)
+- Color thresholds: **green** (<50%) → **yellow** (50-65%) → **orange** (65-80%) → **red** (>80%)
+
 ## Checking your installed version
 
 ```bash
@@ -49,3 +57,8 @@ You can also check manually:
 ## Configuration
 
 Respects the `CLAUDE_CONFIG_DIR` environment variable. Defaults to `~/.claude`.
+
+## Future Enhancements
+
+- Lines changed display (+added / -removed)
+- Token usage counter

@@ -121,22 +121,6 @@ function formatCost(costUsd) {
   return `${WHITE}$${str}${RESET}`
 }
 
-function formatLinesChanged(added, removed) {
-  const parts = []
-  if (added) parts.push(`${GREEN}+${added}${RESET}`)
-  if (removed) parts.push(`${RED}-${removed}${RESET}`)
-  return parts.join(' ')
-}
-
-function formatTokenCount(input, output) {
-  const total = (input || 0) + (output || 0)
-  if (!total) return ''
-  let compact
-  if (total >= 1e6) compact = `${(total / 1e6).toFixed(1)}M`
-  else if (total >= 1e3) compact = `${(total / 1e3).toFixed(1)}k`
-  else compact = `${total}`
-  return `${DIM}${compact} tok${RESET}`
-}
 
 async function main() {
   let input = ''
@@ -179,10 +163,6 @@ async function main() {
   const remainingPct = data.context_window?.remaining_percentage ?? 100
   const sessionId = data.session?.id || data.session_id || null
   const costUsd = data.cost?.total_cost_usd ?? 0
-  const linesAdded = data.cost?.total_lines_added ?? 0
-  const linesRemoved = data.cost?.total_lines_removed ?? 0
-  const totalInputTokens = data.context_window?.total_input_tokens ?? 0
-  const totalOutputTokens = data.context_window?.total_output_tokens ?? 0
 
   // Normalize and build bar
   const usedPct = normalizeUsage(remainingPct)
@@ -207,10 +187,8 @@ async function main() {
     model,
   })
 
-  // Format new segments
+  // Format cost
   const cost = formatCost(costUsd)
-  const lines = formatLinesChanged(linesAdded, linesRemoved)
-  const tokenCount = formatTokenCount(totalInputTokens, totalOutputTokens)
 
   // Build segments array (only include non-empty optional segments)
   const segments = [
@@ -218,9 +196,7 @@ async function main() {
     dirLabel,
   ]
   if (cost) segments.push(cost)
-  if (lines) segments.push(lines)
-  const barWithTokens = tokenCount ? `${bar} ${tokenCount}` : bar
-  segments.push(barWithTokens)
+  segments.push(bar)
 
   // Output statusline
   const line = segments.join(` ${SEPARATOR} `) + taskSegment + updateIndicator
