@@ -9,9 +9,12 @@ const { isOurEntry, upsertHookArray, removeFromHookArray } = require('../lib/ins
 const PACKAGE_VERSION = require('../package.json').version
 const HOOKS_SOURCE = path.join(__dirname, '..', 'hooks')
 const HOOK_FILES = ['statusline.js', 'context-monitor.js', 'check-update.js', 'check-update-worker.js']
+const LIB_SOURCE = path.join(__dirname, '..', 'lib')
+const LIB_FILES = ['statusline.js', 'context.js', 'install.js']
 
 const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(require('node:os').homedir(), '.claude')
 const hooksTarget = path.join(configDir, 'hooks', 'claude-code-pulsify')
+const libTarget = path.join(configDir, 'hooks', 'lib')
 const settingsPath = path.join(configDir, 'settings.json')
 
 // --- Helpers ---
@@ -49,11 +52,20 @@ function install() {
     console.log(`  Copied ${file}`)
   }
 
-  // 2. Write VERSION
+  // 2. Copy lib (hooks require('../lib/...') at runtime)
+  fs.mkdirSync(libTarget, { recursive: true })
+  for (const file of LIB_FILES) {
+    const src = path.join(LIB_SOURCE, file)
+    const dst = path.join(libTarget, file)
+    fs.copyFileSync(src, dst)
+    console.log(`  Copied lib/${file}`)
+  }
+
+  // 3. Write VERSION
   fs.writeFileSync(path.join(hooksTarget, 'VERSION'), PACKAGE_VERSION, 'utf8')
   console.log(`  Wrote VERSION (${PACKAGE_VERSION})`)
 
-  // 3. Clear update cache so stale "update available" indicators don't persist after install.
+  // 4. Clear update cache so stale "update available" indicators don't persist after install.
   //    The background worker will refresh it on next session.
   const cachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
   try {
@@ -63,7 +75,7 @@ function install() {
     // Doesn't exist — fine
   }
 
-  // 4. Patch settings.json
+  // 5. Patch settings.json
   const settings = readJSON(settingsPath)
 
   // statusLine — check for conflicts from other tools
@@ -124,7 +136,13 @@ function uninstall() {
     console.log(`  Removed ${hooksTarget}`)
   }
 
-  // 2. Clean settings.json
+  // 2. Remove lib directory
+  if (fs.existsSync(libTarget)) {
+    fs.rmSync(libTarget, { recursive: true })
+    console.log(`  Removed ${libTarget}`)
+  }
+
+  // 3. Clean settings.json
   if (fs.existsSync(settingsPath)) {
     const settings = readJSON(settingsPath)
 
@@ -153,7 +171,7 @@ function uninstall() {
     writeJSON(settingsPath, settings)
   }
 
-  // 3. Remove cache file
+  // 4. Remove cache file
   const cachePath = path.join(configDir, 'cache', 'claude-code-pulsify-update.json')
   try {
     fs.unlinkSync(cachePath)
