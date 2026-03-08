@@ -8,21 +8,9 @@
  */
 
 const fs = require('node:fs')
-const path = require('node:path')
 
-// Thresholds on "used percentage" (normalized, 0-100)
-const WARNING_THRESHOLD = 65 // remaining ~35% usable
-const CRITICAL_THRESHOLD = 75 // remaining ~25% usable
-
-// Debounce: minimum tool calls between repeated warnings at the same severity
-const DEBOUNCE_COUNT = 5
-
-// Bridge data older than this is considered stale and ignored
-const BRIDGE_STALE_MS = 60_000
-
-function sanitizeId(id) {
-  return id.replace(/[^a-zA-Z0-9_-]/g, '')
-}
+const { sanitizeId } = require('../lib/statusline')
+const { BRIDGE_STALE_MS, getSeverity, shouldFireWarning } = require('../lib/context')
 
 // State file to track debounce across invocations
 function getStateFile(sessionId) {
@@ -78,20 +66,14 @@ async function main() {
   if (usedPct == null) return
 
   // Determine severity
-  let severity = null
-  if (usedPct >= CRITICAL_THRESHOLD) severity = 'CRITICAL'
-  else if (usedPct >= WARNING_THRESHOLD) severity = 'WARNING'
-
+  const severity = getSeverity(usedPct)
   if (!severity) return // Context is fine
 
   // Debounce logic
   const state = readState(sessionId)
   state.callsSinceWarning = (state.callsSinceWarning || 0) + 1
 
-  const isEscalation = severity === 'CRITICAL' && state.lastSeverity === 'WARNING'
-  const shouldWarn = isEscalation || state.callsSinceWarning >= DEBOUNCE_COUNT
-
-  if (!shouldWarn) {
+  if (!shouldFireWarning(state.callsSinceWarning, severity, state.lastSeverity)) {
     writeState(sessionId, state)
     return
   }

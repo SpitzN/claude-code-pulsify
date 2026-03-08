@@ -4,6 +4,8 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+const { isOurEntry, upsertHookArray, removeFromHookArray } = require('../lib/install')
+
 const PACKAGE_VERSION = require('../package.json').version
 const HOOKS_SOURCE = path.join(__dirname, '..', 'hooks')
 const HOOK_FILES = ['statusline.js', 'context-monitor.js', 'check-update.js', 'check-update-worker.js']
@@ -31,24 +33,6 @@ function readJSON(filePath) {
 
 function writeJSON(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8')
-}
-
-function isOurEntry(entry) {
-  const cmd = entry?.hooks?.[0]?.command || ''
-  return cmd.includes('claude-code-pulsify')
-}
-
-function upsertHookArray(arr, newEntry) {
-  const idx = arr.findIndex(isOurEntry)
-  if (idx >= 0) {
-    arr[idx] = newEntry
-  } else {
-    arr.push(newEntry)
-  }
-}
-
-function removeFromHookArray(arr) {
-  return arr.filter((entry) => !isOurEntry(entry))
 }
 
 // --- Install ---
